@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
+using System.IO;
 
 namespace WallHaven.ConsoleApp
 {
@@ -21,7 +22,7 @@ namespace WallHaven.ConsoleApp
             {
                 var progress = new Progress<string>(i => Console.WriteLine(i));
                 var cancellationEventHandler = default(ConsoleCancelEventHandler);
-
+                
                 cancellationEventHandler = (s, e) =>
                 {
                     tokenSource.Cancel();
@@ -40,12 +41,26 @@ namespace WallHaven.ConsoleApp
                     
                     while (!tokenSource.IsCancellationRequested)
                     {
-                        request = WebRequest.CreateHttp(new Uri(string.Format(requestUrl, page)));
-                        request.Headers.Add(requestHeader);
+                        request = WebRequest.CreateDefault(new Uri(string.Format(requestUrl, page)));
                         request.Credentials = CredentialCache.DefaultCredentials;
 
-                        var response = await request.GetResponseAsync();
+                        using (var response = await request.GetResponseAsync())
+                        {
+                            using (var responseStream = response.GetResponseStream())
+                            {
+                                using (var responseReader = new StreamReader(responseStream))
+                                {
+                                    var responseText = await responseReader.ReadToEndAsync();
+                                    System.Diagnostics.Debug.Write(responseText);
+                                }
+                            }
+                        }
+
+                        System.Diagnostics.Debugger.Break();
+                        page++;
                     }
+
+
                 }, tokenSource.Token).ContinueWith((i) =>
                 {
                     i.Exception?.Handle(ex =>
