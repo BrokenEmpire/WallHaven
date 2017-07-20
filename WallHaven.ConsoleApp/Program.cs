@@ -17,7 +17,7 @@ namespace WallHaven.ConsoleApp
         private const string requestCookie_2 = "1";
         private const string requestCookie_3 = "GA1.2.544989659.1500506632";
         private const string requestCookie_4 = "GA1.2.1281294653.1500506632";
-        
+
         static void Main(string[] args)
         {
             using (var tokenSource = new CancellationTokenSource())
@@ -75,6 +75,11 @@ namespace WallHaven.ConsoleApp
                                 Debugger.Break();
                             }
                         }
+
+
+                        // here we can do the downloading
+                        // once all images are downloaded, we move on to the next page.
+
 
                         page++;
                         await Task.Delay(1000);
