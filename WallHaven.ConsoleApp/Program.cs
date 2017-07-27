@@ -23,8 +23,62 @@ namespace WallHaven.ConsoleApp
         {
             using (var tokenSource = new CancellationTokenSource())
             {
-                var progress = new Progress<string>(i => Console.WriteLine(i));
-                FindImages(progress, tokenSource.Token).ContinueWith((i) =>
+                ConsoleCancelEventHandler cancellationHandler;
+                Console.CancelKeyPress += cancellationHandler = (s, e) =>
+                {
+                    e.Cancel = true;
+                    tokenSource.Cancel();
+                    Console.WriteLine("Cancelling Operation");
+                };
+                Task.Run(async () => 
+                {
+                    var page = 1;
+                    var uri = new Uri("https://alpha.wallhaven.cc");
+                    var cookieCollection = new CookieCollection()
+                    {
+                        new Cookie("__cfduid", requestCookie_0),
+                        new Cookie("remember_82e5d2c56bdd0811318f0cf078b78bfc", requestCookie_1),
+                        new Cookie("_gat", requestCookie_2),
+                        new Cookie("_ga", requestCookie_3),
+                        new Cookie("_gid", requestCookie_4),
+                        new Cookie("wallhaven_session", string.Empty)
+                    };
+
+                    while (!tokenSource.Token.IsCancellationRequested)
+                    {
+                        var request = WebRequest.CreateDefault(new Uri(string.Format(requestUrl, page)));
+                        var httpRequest = request as HttpWebRequest;
+
+                        request.Credentials = CredentialCache.DefaultCredentials;
+                        request.ContentType = requestContentType;
+
+                        httpRequest.UserAgent = requestUserAgent;
+                        httpRequest.CookieContainer = new CookieContainer();
+                        httpRequest.CookieContainer.Add(uri, cookieCollection);
+
+                        using (var response = await request.GetResponseAsync())
+                        {
+                            var httpResponse = response as HttpWebResponse;
+                            cookieCollection["wallhaven_session"].Value = httpResponse.Cookies["wallhaven_session"].Value;
+
+                            using (var responseStream = response.GetResponseStream())
+                            using (var responseReader = new StreamReader(responseStream))
+                            {
+                                var matches = Regex.Matches(await responseReader.ReadToEndAsync(), regexUrl);
+
+                                foreach (var match in matches)
+                                {
+
+
+                                    Console.WriteLine(match);
+                                }
+                            }
+                        }
+                    }
+
+                    page++;
+
+                }, tokenSource.Token).ContinueWith((i) =>
                 {
                     i.Exception?.Handle(ex =>
                     {
@@ -41,63 +95,13 @@ namespace WallHaven.ConsoleApp
                     Console.WriteLine("Operation Successful");
 
                 }).Wait();
+
+                Console.CancelKeyPress -= cancellationHandler;
             }
 
             Console.WriteLine();
             Console.WriteLine("Press any key to exit");
             Console.Read();
-        }
-
-        static async Task FindImages(IProgress<string> progress, CancellationToken cancelToken)
-        {
-            var page = 1;
-            var uri = new Uri("https://alpha.wallhaven.cc");
-            var cookieCollection = new CookieCollection()
-                {
-                    new Cookie("__cfduid", requestCookie_0),
-                    new Cookie("remember_82e5d2c56bdd0811318f0cf078b78bfc", requestCookie_1),
-                    new Cookie("_gat", requestCookie_2),
-                    new Cookie("_ga", requestCookie_3),
-                    new Cookie("_gid", requestCookie_4),
-                    new Cookie("wallhaven_session", string.Empty)
-                };
-
-            while (!cancelToken.IsCancellationRequested)
-            {
-                var request = WebRequest.CreateDefault(new Uri(string.Format(requestUrl, page)));
-                var httpRequest = request as HttpWebRequest;
-
-                request.Credentials = CredentialCache.DefaultCredentials;
-                request.ContentType = requestContentType;
-
-                httpRequest.UserAgent = requestUserAgent;
-                httpRequest.CookieContainer = new CookieContainer();
-                httpRequest.CookieContainer.Add(uri, cookieCollection);
-
-                using (var response = await request.GetResponseAsync())
-                {
-                    var httpResponse = response as HttpWebResponse;
-                    cookieCollection["wallhaven_session"].Value = httpResponse.Cookies["wallhaven_session"].Value;
-
-                    using (var responseStream = response.GetResponseStream())
-                    using (var responseReader = new StreamReader(responseStream))
-                    {
-                        var matches = Regex.Matches(await responseReader.ReadToEndAsync(), regexUrl);
-                        foreach (var match in matches)
-                        {
-                            Console.WriteLine(match);
-                        }
-                    }
-                }
-
-
-                // here we can do the downloading
-                // once all images are downloaded, we move on to the next page.
-
-
-                page++;
-                await Task.Delay(1000);
-            }
         }
     }
 }
