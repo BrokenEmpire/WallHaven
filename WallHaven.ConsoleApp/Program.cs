@@ -65,12 +65,12 @@ namespace WallHaven.ConsoleApp
                             using (var responseReader = new StreamReader(responseStream))
                             {
                                 var matches = Regex.Matches(await responseReader.ReadToEndAsync(), regexUrl);
-
-                                foreach (var match in matches)
+                                for (var m = 0; m < matches.Count; m++)
                                 {
+                                    var match = matches[m].Value.Substring(52);
+                                    var url = string.Format("https://wallpapers.wallhaven.cc/wallpapers/full/wallhaven-{0}", match);
 
-
-                                    Console.WriteLine(match);
+                                    //We have our image URL, now to download all of them async and move to the next page.
                                 }
                             }
                         }
