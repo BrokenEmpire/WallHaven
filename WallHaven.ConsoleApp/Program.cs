@@ -1,12 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Text.RegularExpressions;
-using System.Linq;
-using System.Collections;
-using System.Collections.Generic;
 
 namespace WallHaven.ConsoleApp
 {
@@ -70,7 +68,6 @@ namespace WallHaven.ConsoleApp
                         
                         using (var response = await request.GetResponseAsync())
                         {
-
                             var httpResponse = response as HttpWebResponse;
                             cookieCollection["wallhaven_session"].Value = httpResponse.Cookies["wallhaven_session"].Value;
 
