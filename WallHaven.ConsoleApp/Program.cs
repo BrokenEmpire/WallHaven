@@ -30,7 +30,8 @@ namespace WallHaven.ConsoleApp
                 Console.CancelKeyPress += cancellationHandler = (s, e) =>
                 {
                     e.Cancel = true;
-                    tokenSource.Cancel();
+                    tokenSource.Cancel(true);
+
                     Console.WriteLine("Cancelling Operation");
                 };
 
@@ -53,6 +54,9 @@ namespace WallHaven.ConsoleApp
 
                     while (!tokenSource.Token.IsCancellationRequested)
                     {
+                        Console.Clear();
+                        Console.WriteLine("Processing Page: {0}\n", page);
+
                         var imageTask = new List<Task>();
                         var request = WebRequest.CreateDefault(new Uri(string.Format(requestUrl, page)));
                         var httpRequest = request as HttpWebRequest;
@@ -93,28 +97,18 @@ namespace WallHaven.ConsoleApp
                                         (imagePageRequest as HttpWebRequest).CookieContainer.Add(uri, cookieCollection);
 
                                         using (var imagePageResponse = await imagePageRequest.GetResponseAsync())
+                                        using (var imagePageResponseStream = imagePageResponse.GetResponseStream())
+                                        using (var imagePageResponseReader = new StreamReader(imagePageResponseStream))
                                         {
-                                            tokenSource.Token.ThrowIfCancellationRequested();
+                                            var imageMatches = Regex.Matches(await imagePageResponseReader.ReadToEndAsync(), string.Format(regexImage, imageID));
+                                            var imageRequest = WebRequest.CreateDefault(new Uri(string.Format("https://{0}", imageMatches[0].Groups[1].Value)));
 
-                                            using (var imagePageResponseStream = imagePageResponse.GetResponseStream())
-                                            using (var imagePageResponseReader = new StreamReader(imagePageResponseStream))
-                                            {
-                                                tokenSource.Token.ThrowIfCancellationRequested();
+                                            Console.WriteLine("Requesting {0}", imageRequest.RequestUri);
 
-                                                var imageMatches = Regex.Matches(await imagePageResponseReader.ReadToEndAsync(), string.Format(regexImage, imageID));
-                                                var imageRequest = WebRequest.CreateDefault(new Uri(string.Format("https://{0}", imageMatches[0].Groups[1].Value)));
-
-                                                Console.WriteLine("Requesting {0}", imageRequest.RequestUri);
-
-                                                using (var imageResponse = await imageRequest.GetResponseAsync())
-                                                {
-                                                    tokenSource.Token.ThrowIfCancellationRequested();
-
-                                                    using (var imageResponseStream = imageResponse.GetResponseStream())
-                                                    using (var imageFileStream = new FileStream(string.Format("{0}{1}", outputFolder, imageRequest.RequestUri.Segments[3]), FileMode.Create, FileAccess.ReadWrite))
-                                                        await imageResponseStream.CopyToAsync(imageFileStream, 81920, tokenSource.Token);
-                                                }
-                                            }
+                                            using (var imageResponse = await imageRequest.GetResponseAsync())
+                                            using (var imageResponseStream = imageResponse.GetResponseStream())
+                                            using (var imageFileStream = new FileStream(string.Format("{0}{1}", outputFolder, imageRequest.RequestUri.Segments[3]), FileMode.Create, FileAccess.ReadWrite))
+                                                await imageResponseStream.CopyToAsync(imageFileStream, 81920, tokenSource.Token);
                                         }
                                     }, match, tokenSource.Token));
                                 }
@@ -125,13 +119,13 @@ namespace WallHaven.ConsoleApp
                         {
                             var task = await Task.WhenAny(imageTask);
                             imageTask.Remove(task);
-                            tokenSource.Token.ThrowIfCancellationRequested();
 
                             await task;
                         }
 
+                        await Task.Delay(15000);
                         page++;
-                        await Task.Delay(5000);
+
                     }
                 }, tokenSource.Token).ContinueWith((i) =>
                 {
