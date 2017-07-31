@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.IO;
 using System.Net;
 using System.Text.RegularExpressions;
@@ -24,133 +25,71 @@ namespace WallHaven.ConsoleApp
 
         static void Main(string[] args)
         {
-            using (var tokenSource = new CancellationTokenSource())
-            {
-                ConsoleCancelEventHandler cancellationHandler;
-                Console.CancelKeyPress += cancellationHandler = (s, e) =>
-                {
-                    e.Cancel = true;
-                    tokenSource.Cancel(true);
+            var isCancelled = false;
+            var imageList = new Dictionary<string, string>();
+            ConsoleCancelEventHandler cancellationHandler = (s, e) => e.Cancel = isCancelled = true;
+            Console.CancelKeyPress += cancellationHandler;
 
-                    Console.WriteLine("Cancelling Operation");
+            try
+            {
+                var page = 1;
+                var uri = new Uri("https://alpha.wallhaven.cc");
+                var cookieContainer = new CookieContainer();
+                var cookieCollection = new CookieCollection()
+                {
+                    new Cookie("__cfduid", requestCookie_0),
+                    new Cookie("remember_82e5d2c56bdd0811318f0cf078b78bfc", requestCookie_1),
+                    new Cookie("_gat", requestCookie_2),
+                    new Cookie("_ga", requestCookie_3),
+                    new Cookie("_gid", requestCookie_4),
+                    new Cookie("wallhaven_session", string.Empty)
                 };
 
-                Task.Run(async () => 
+                cookieContainer.Add(uri, cookieCollection);
+
+                while (!isCancelled)
                 {
-                    var page = 1;
-                    var uri = new Uri("https://alpha.wallhaven.cc");
-                    var cookieCollection = new CookieCollection()
+                    var request = WebRequest.CreateDefault(new Uri(string.Format(requestUrl, page)));
+                    request.Credentials = CredentialCache.DefaultCredentials;
+                    request.ContentType = requestContentType;
+
+                    (request as HttpWebRequest).UserAgent = requestUserAgent;
+                    (request as HttpWebRequest).CookieContainer = cookieContainer;
+
+                    using (var response = request.GetResponse())
                     {
-                        new Cookie("__cfduid", requestCookie_0),
-                        new Cookie("remember_82e5d2c56bdd0811318f0cf078b78bfc", requestCookie_1),
-                        new Cookie("_gat", requestCookie_2),
-                        new Cookie("_ga", requestCookie_3),
-                        new Cookie("_gid", requestCookie_4),
-                        new Cookie("wallhaven_session", string.Empty)
-                    };
+                        cookieCollection["wallhaven_session"].Value = (response as HttpWebResponse).Cookies["wallhaven_session"].Value;
 
-                    if (!Directory.Exists(outputFolder))
-                        Directory.CreateDirectory(outputFolder);
-
-                    while (!tokenSource.Token.IsCancellationRequested)
-                    {
-                        Console.Clear();
-                        Console.WriteLine("Processing Page: {0}\n", page);
-
-                        var imageTask = new List<Task>();
-                        var request = WebRequest.CreateDefault(new Uri(string.Format(requestUrl, page)));
-                        var httpRequest = request as HttpWebRequest;
-
-                        request.Credentials = CredentialCache.DefaultCredentials;
-                        request.ContentType = requestContentType;
-
-                        httpRequest.UserAgent = requestUserAgent;
-                        httpRequest.CookieContainer = new CookieContainer();
-                        httpRequest.CookieContainer.Add(uri, cookieCollection);
-
-                        tokenSource.Token.ThrowIfCancellationRequested();
-                        
-                        using (var response = await request.GetResponseAsync())
-                        {
-                            var httpResponse = response as HttpWebResponse;
-                            cookieCollection["wallhaven_session"].Value = httpResponse.Cookies["wallhaven_session"].Value;
-
-                            using (var responseStream = response.GetResponseStream())
-                            using (var responseReader = new StreamReader(responseStream))
-                            {
-                                tokenSource.Token.ThrowIfCancellationRequested();
-                                var matches = Regex.Matches(await responseReader.ReadToEndAsync(), regexUrl);
-
-                                foreach (var match in matches)
-                                {
-                                    imageTask.Add(Task.Factory.StartNew(async (i) =>
-                                    {
-                                        var matchUrl = i as Match;
-                                        var imageID = matchUrl.Groups[1].Value;
-                                        var imagePageRequest = WebRequest.CreateDefault(new Uri(matchUrl.Value));
-
-                                        imagePageRequest.Credentials = CredentialCache.DefaultCredentials;
-                                        imagePageRequest.ContentType = requestContentType;
-
-                                        (imagePageRequest as HttpWebRequest).UserAgent = requestUserAgent;
-                                        (imagePageRequest as HttpWebRequest).CookieContainer = new CookieContainer();
-                                        (imagePageRequest as HttpWebRequest).CookieContainer.Add(uri, cookieCollection);
-
-                                        using (var imagePageResponse = await imagePageRequest.GetResponseAsync())
-                                        using (var imagePageResponseStream = imagePageResponse.GetResponseStream())
-                                        using (var imagePageResponseReader = new StreamReader(imagePageResponseStream))
-                                        {
-                                            var imageMatches = Regex.Matches(await imagePageResponseReader.ReadToEndAsync(), string.Format(regexImage, imageID));
-                                            var imageRequest = WebRequest.CreateDefault(new Uri(string.Format("https://{0}", imageMatches[0].Groups[1].Value)));
-
-                                            Console.WriteLine("Requesting {0}", imageRequest.RequestUri);
-
-                                            using (var imageResponse = await imageRequest.GetResponseAsync())
-                                            using (var imageResponseStream = imageResponse.GetResponseStream())
-                                            using (var imageFileStream = new FileStream(string.Format("{0}{1}", outputFolder, imageRequest.RequestUri.Segments[3]), FileMode.Create, FileAccess.ReadWrite))
-                                                await imageResponseStream.CopyToAsync(imageFileStream, 81920, tokenSource.Token);
-                                        }
-                                    }, match, tokenSource.Token));
-                                }
-                            }
-                        }
-
-                        while (imageTask.Count > 0)
-                        {
-                            var task = await Task.WhenAny(imageTask);
-                            imageTask.Remove(task);
-
-                            await task;
-                        }
-
-                        await Task.Delay(15000);
-                        page++;
-
-                    }
-                }, tokenSource.Token).ContinueWith((i) =>
-                {
-                    i.Exception?.Handle(ex =>
-                    {
-                        Console.WriteLine("Exception: {0}", ex.Message);
-                        return true;
-                    });
-
-                    if (i.Status == TaskStatus.Canceled)
-                    {
-                        Console.WriteLine("Operation Cancelled");
-                        return;
+                        using (var responseStream = response.GetResponseStream())
+                        using (var responseReader = new StreamReader(responseStream))
+                            foreach (Match match in Regex.Matches(responseReader.ReadToEnd(), regexUrl))
+                                imageList.Add(match.Groups[1].Value, match.Value);
                     }
 
-                    Console.WriteLine("Operation Successful");
+                    page++;
+                }
 
-                }).Wait();
-
-                Console.CancelKeyPress -= cancellationHandler;
+                using (var sw = new StreamWriter("C:\\Users\\dhr\\desktop\\imageList.txt", true))
+                    foreach (var item in imageList)
+                        sw.WriteLine(string.Format("{0},{1}", item.Key, item.Value));
             }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("\n\n**** UNHANDLED EXCEPTION ***");
+                Console.WriteLine("\tMessage: {0}", ex.Message);
+                Console.WriteLine("\tType: {0}", ex.GetType());
+                Console.WriteLine("\tStack Trace: {0}", ex.StackTrace);
+                Console.ForegroundColor = ConsoleColor.Gray;
+            }
+            finally
+            {
+                Console.CancelKeyPress -= cancellationHandler;
 
-            Console.WriteLine();
-            Console.WriteLine("Press any key to exit");
-            Console.Read();
+                Console.WriteLine();
+                Console.WriteLine("Press any key to exit");
+                Console.Read();
+            }
         }
     }
 }
