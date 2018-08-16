@@ -15,30 +15,36 @@ namespace WallHaven.ConsoleApp
         private const string requestUrl = "https://alpha.wallhaven.cc/search?q=&search_image=&categories=001&purity=001&ratios=16x9&sorting=date_added&order=desc&page={0}";
         private const string requestUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36";
         private const string requestContentType = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8";
-        private const string requestCookie_0 = "d120f21787983998fb1524ae8d97398841500506629";
-        private const string requestCookie_1 = "eyJpdiI6Ik9nZjNGRUp6U1RDM25YaG1abFRGc0NERWxBTVM2RW9OT2VZU1hOd1Fwcnc9IiwidmFsdWUiOiJmTENnRkZXbkpqRlMxd01HbGk4TVBGWVdPbE1KQ3VhaXhtQTBPZ1FPQ3JrTjBYXC9BckgyUzJ2VWRGV2lGemxRUGZkbCtmOVRhNHl6M1FuYmdzRkpPM1h3bEg5QXpTT1hwMlpQRXJadWJ1c2tuaUxmcVdIK3dkTHNKcmNwZXhBV28iLCJtYWMiOiJhNzMwNWE3YTVmMzg4ZWY5ZDVmYWFlZWJhZTAwMGE5NTQ1MGZjNjEwYWNhNmVmZGRhNDViZjY0NjY5NDlkZWE0In0%3D";
-        private const string requestCookie_2 = "1";
-        private const string requestCookie_3 = "GA1.2.544989659.1500506632";
-        private const string requestCookie_4 = "GA1.2.1281294653.1500506632";
+        private const string requestCookie_0 = "";
+        private const string requestCookie_1 = "";
+        private const string requestCookie_2 = "";
+        private const string requestCookie_3 = "";
+        private const string requestCookie_4 = "";
         private const string outputFolder = "C:\\Users\\DHR\\Desktop\\Images\\";
-
+        private const int bufferSize = 81920;
         static void Main(string[] args)
         {
+            if (!Directory.Exists(outputFolder))
+                Directory.CreateDirectory(outputFolder);
+
             using (var tokenSource = new CancellationTokenSource())
+            using (var urlLog = new StreamWriter("UrlLog.log", true))
+            using (var pageLog = new StreamWriter("Page.log", true))
             {
                 ConsoleCancelEventHandler cancellationHandler;
                 Console.CancelKeyPress += cancellationHandler = (s, e) =>
                 {
                     e.Cancel = true;
                     tokenSource.Cancel(true);
-
                     Console.WriteLine("Cancelling Operation");
                 };
 
-                Task.Run(async () => 
+                Task.Run(async () =>
                 {
                     var page = 1;
                     var uri = new Uri("https://alpha.wallhaven.cc");
+
+                    var cookieContainer = new CookieContainer();
                     var cookieCollection = new CookieCollection()
                     {
                         new Cookie("__cfduid", requestCookie_0),
@@ -49,8 +55,7 @@ namespace WallHaven.ConsoleApp
                         new Cookie("wallhaven_session", string.Empty)
                     };
 
-                    if (!Directory.Exists(outputFolder))
-                        Directory.CreateDirectory(outputFolder);
+                    cookieContainer.Add(uri, cookieCollection);
 
                     while (!tokenSource.Token.IsCancellationRequested)
                     {
@@ -60,6 +65,8 @@ namespace WallHaven.ConsoleApp
                         var imageTask = new List<Task>();
                         var request = WebRequest.CreateDefault(new Uri(string.Format(requestUrl, page)));
                         var httpRequest = request as HttpWebRequest;
+                        var matches = default(MatchCollection);
+                        var responseString = string.Empty;
 
                         request.Credentials = CredentialCache.DefaultCredentials;
                         request.ContentType = requestContentType;
@@ -69,7 +76,7 @@ namespace WallHaven.ConsoleApp
                         httpRequest.CookieContainer.Add(uri, cookieCollection);
 
                         tokenSource.Token.ThrowIfCancellationRequested();
-                        
+
                         using (var response = await request.GetResponseAsync())
                         {
                             var httpResponse = response as HttpWebResponse;
@@ -77,42 +84,42 @@ namespace WallHaven.ConsoleApp
 
                             using (var responseStream = response.GetResponseStream())
                             using (var responseReader = new StreamReader(responseStream))
+                                responseString = await responseReader.ReadToEndAsync();
+                        }
+
+                        matches = Regex.Matches(responseString, regexUrl);
+
+                        foreach (var match in matches)
+                        {
+                            imageTask.Add(new Task(async (i) =>
                             {
-                                tokenSource.Token.ThrowIfCancellationRequested();
-                                var matches = Regex.Matches(await responseReader.ReadToEndAsync(), regexUrl);
+                                var matchUrl = i as Match;
+                                var imageID = matchUrl.Groups[1].Value;
+                                var imagePageRequest = WebRequest.CreateDefault(new Uri(matchUrl.Value));
 
-                                foreach (var match in matches)
+                                imagePageRequest.Credentials = CredentialCache.DefaultCredentials;
+                                imagePageRequest.ContentType = requestContentType;
+
+                                (imagePageRequest as HttpWebRequest).UserAgent = requestUserAgent;
+                                (imagePageRequest as HttpWebRequest).CookieContainer = new CookieContainer();
+                                (imagePageRequest as HttpWebRequest).CookieContainer.Add(uri, cookieCollection);
+
+                                using (var imagePageResponse = await imagePageRequest.GetResponseAsync())
+                                using (var imagePageResponseStream = imagePageResponse.GetResponseStream())
+                                using (var imagePageResponseReader = new StreamReader(imagePageResponseStream))
                                 {
-                                    imageTask.Add(Task.Factory.StartNew(async (i) =>
-                                    {
-                                        var matchUrl = i as Match;
-                                        var imageID = matchUrl.Groups[1].Value;
-                                        var imagePageRequest = WebRequest.CreateDefault(new Uri(matchUrl.Value));
+                                    var imageMatches = Regex.Matches(await imagePageResponseReader.ReadToEndAsync(), string.Format(regexImage, imageID));
+                                    var imageRequest = WebRequest.CreateDefault(new Uri(string.Format("https://{0}", imageMatches[0].Groups[1].Value)));
 
-                                        imagePageRequest.Credentials = CredentialCache.DefaultCredentials;
-                                        imagePageRequest.ContentType = requestContentType;
+                                    await urlLog.WriteLineAsync(imageRequest.RequestUri.ToString());
+                                    Console.WriteLine("Requesting {0}", imageRequest.RequestUri);
 
-                                        (imagePageRequest as HttpWebRequest).UserAgent = requestUserAgent;
-                                        (imagePageRequest as HttpWebRequest).CookieContainer = new CookieContainer();
-                                        (imagePageRequest as HttpWebRequest).CookieContainer.Add(uri, cookieCollection);
-
-                                        using (var imagePageResponse = await imagePageRequest.GetResponseAsync())
-                                        using (var imagePageResponseStream = imagePageResponse.GetResponseStream())
-                                        using (var imagePageResponseReader = new StreamReader(imagePageResponseStream))
-                                        {
-                                            var imageMatches = Regex.Matches(await imagePageResponseReader.ReadToEndAsync(), string.Format(regexImage, imageID));
-                                            var imageRequest = WebRequest.CreateDefault(new Uri(string.Format("https://{0}", imageMatches[0].Groups[1].Value)));
-
-                                            Console.WriteLine("Requesting {0}", imageRequest.RequestUri);
-
-                                            using (var imageResponse = await imageRequest.GetResponseAsync())
-                                            using (var imageResponseStream = imageResponse.GetResponseStream())
-                                            using (var imageFileStream = new FileStream(string.Format("{0}{1}", outputFolder, imageRequest.RequestUri.Segments[3]), FileMode.Create, FileAccess.ReadWrite))
-                                                await imageResponseStream.CopyToAsync(imageFileStream, 81920, tokenSource.Token);
-                                        }
-                                    }, match, tokenSource.Token));
+                                    using (var imageResponse = await imageRequest.GetResponseAsync())
+                                    using (var imageResponseStream = imageResponse.GetResponseStream())
+                                    using (var imageFileStream = new FileStream(string.Format("{0}{1}", outputFolder, imageRequest.RequestUri.Segments[3]), FileMode.Create, FileAccess.ReadWrite))
+                                        await imageResponseStream.CopyToAsync(imageFileStream, bufferSize, tokenSource.Token);
                                 }
-                            }
+                            }, match, tokenSource.Token));
                         }
 
                         while (imageTask.Count > 0)
@@ -124,8 +131,9 @@ namespace WallHaven.ConsoleApp
                         }
 
                         await Task.Delay(15000);
-                        page++;
+                        await pageLog.WriteLineAsync(page.ToString());
 
+                        page++;
                     }
                 }, tokenSource.Token).ContinueWith((i) =>
                 {
